@@ -128,6 +128,7 @@ const BCOLS = [
     fmt: r => `<a href="#view=player&p=${encodeURIComponent(r.key)}">${esc(r.name)}</a>${r.intl ? '<span class="tag t-intl" title="International">INTL</span>' : ""}` },
   { k: "pos", l: "Pos", g: "Overview", sortv: r => r.pos || "~" },
   { k: "ht", l: "Ht", g: "Overview", sortv: r => htIn(r.ht), fmt: r => esc(r.ht || "—") },
+  { k: "gp", l: "GP", g: "Overview", d: 0, title: "Grassroots games on file (more games = steadier projection)" },
   { k: "school", l: "College", g: "Overview", cls: "left", sortv: r => r.tid ? schoolName(r.tid) : (r.school_raw || "~"),
     fmt: r => schHTML(r.tid, r.school_raw) + statusTags(r.school_src) },
   { k: "espn_rank", l: "Rk", g: "ESPN", d: 0, title: "ESPN SC Next rank in class" },
@@ -246,7 +247,7 @@ function wireSort(sel, cols, key, dir) {
   document.querySelectorAll(`${sel} thead tr:not(.grprow) th`).forEach(th => {
     const go = () => {
       const k = th.dataset.k;
-      const nd = k === key ? (dir === "d" ? "a" : "d") : (k === "rk" || k === "name" || k === "school" || k === "pos" || k === "espn_rank" ? "a" : "d");
+      const nd = k === key ? (dir === "d" ? "a" : "d") : (["rk", "name", "school", "pos", "espn_rank", "rank_model", "rank_actual", "college", "team"].includes(k) ? "a" : "d");
       setState({ s: k, d: nd });
     };
     th.onclick = go;
@@ -322,46 +323,120 @@ function detailRow(s) {
 }
 
 /* ── Track record ─────────────────────────────────────────────────────── */
+const TCOLS_BASE = [
+  { k: "rank_model", l: "Our Rk", g: "Our ranking (before college)", cls: "rk", title: "Where the model ranked her before she played a college game" },
+  { k: "name", l: "Player", g: "Our ranking (before college)", cls: "name", sortv: r => r.name,
+    fmt: r => hasProfile(r.key) ? `<a href="#view=player&p=${encodeURIComponent(r.key)}">${esc(r.name)}</a>` : esc(r.name) },
+  { k: "team", l: "Country", g: "Our ranking (before college)", cls: "left", intlOnly: true, sortv: r => r.team || "~" },
+  { k: "pos", l: "Pos", g: "Our ranking (before college)", sortv: r => r.pos || "~" },
+  { k: "gp", l: "GP", g: "Our ranking (before college)", d: 0, title: "Grassroots games on file" },
+  { k: "pred", l: "Proj", g: "Our ranking (before college)", title: "Projected RAPM NET",
+    fmt: r => sgn(r.pred, 2) },
+  { k: "espn_rank", l: "Rk", g: "ESPN", d: 0 },
+  { k: "college", l: "College", g: "What happened", cls: "left", sortv: r => r.college || "~", fmt: r => schHTML(r.tid, r.college) },
+  { k: "rank_actual", l: "Actual Rk", g: "What happened", title: "Rank in the class by actual college RAPM NET",
+    fmt: r => `<b>${r.rank_actual == null ? "—" : Math.round(r.rank_actual)}</b>`, heat: r => r.actual_p },
+  { k: "actual", l: "Actual", g: "What happened", title: "Actual college RAPM NET", fmt: r => sgn(r.actual, 2), heat: r => r.actual_p },
+  { k: "diff", l: "vs Proj", g: "What happened", title: "Actual minus projected RAPM",
+    fmt: r => `<span class="${r.diff > 0 ? "up" : r.diff < 0 ? "dn" : ""}">${sgn(r.diff, 2)}</span>` },
+];
+const trackGroup = st => (st.t === "intl" ? "intl" : "dom");
+function hasProfile(key) { return !!key && (S.byKey.has(key) || !!S.track.where[key]); }
+function trackRows(grp, cy) {
+  const t = S.track[grp].find(x => x.class_year === cy);
+  if (!t) return { t: null, rows: [] };
+  const cols = S.track.cols;
+  const rows = t.rows.map(r => {
+    const o = Object.fromEntries(cols.map((c, i) => [c, r[i]]));
+    o.diff = (o.actual != null && o.pred != null) ? o.actual - o.pred : null;
+    o.actual_p = o.rank_actual == null ? null : Math.round(100 * (1 - (o.rank_actual - 1) / t.n));
+    return o;
+  });
+  return { t, rows };
+}
 function renderTrack(st) {
-  const years = S.track.map(t => t.class_year);
-  const c = +(st.c || years.filter(y => y <= 2023).slice(-1)[0] || years[0]);
-  const t = S.track.find(x => x.class_year === c) || S.track[0];
-  document.title = `Track record, class of ${c} · Grassroots WBB`;
-  $("#controls").innerHTML = `<span class="cgrp">${classSelect("csel", years, c)}</span>`;
-  $("#csel").onchange = e => setState({ c: e.target.value });
-  const totHits = S.track.reduce((a, x) => a + x.hits5, 0);
-  $("#query").innerHTML = `<span class="prompt">&gt;</span> held_out <span class="pipe">|&gt;</span> <span class="fn">filter</span>(class == ${c}) <span class="pipe">|&gt;</span> <span class="fn">slice_min</span>(our_rank, n = 15)<span class="tibble">## the model never saw this class while training</span>`;
-  const body = t.rows.map(([name, col, tid, rk, er, ar, pred, act]) => {
-    const ap = ar == null ? null : Math.round(100 * (1 - (ar - 1) / t.n));
-    return `<tr><td class="rk">${rk}</td><td class="name">${esc(name)}</td><td class="left">${schHTML(tid, col)}</td>
-      <td>${er == null ? "—" : er}</td><td style="--heat:${heatColor(ap)}"><b>${ar == null ? "—" : Math.round(ar)}</b></td>
-      <td>${sgn(pred, 2)}</td><td>${sgn(act, 2)}</td></tr>`;
-  }).join("");
-  $("#main").innerHTML = `<div class="note"><b>Class of ${c}:</b> ${t.hits5} of our top 5 finished in the class's top 10 by actual college RAPM NET (${t.n} players with college careers).
-    Across ${S.track.length} classes, ${totHits} of ${S.track.length * 5} top-5 picks did. Each class is ranked by a model that never saw it.</div>
-    <div class="tablewrap"><table id="track"><thead><tr class="grprow"><th colspan="3">Our ranking (before college)</th><th>ESPN</th><th colspan="3">What happened</th></tr>
-    <tr><th class="nosort">Our Rk</th><th class="nosort">Player</th><th class="nosort">College</th><th class="nosort">Rk</th>
-    <th class="nosort" title="Rank in the class by actual career RAPM NET">Actual Rk</th><th class="nosort" title="Projected RAPM NET">Proj</th><th class="nosort" title="Actual career RAPM NET">Actual</th></tr></thead>
-    <tbody>${body}</tbody></table></div>`;
+  const grp = trackGroup(st);
+  const years = S.track[grp].map(t => t.class_year);
+  const pref = grp === "dom" ? 2022 : years[0];
+  const c = +(st.c && years.includes(+st.c) ? st.c : (years.includes(pref) ? pref : years[0]));
+  const yl = grp === "dom" ? "Class" : "Entry year";
+  document.title = `Track record, ${grp === "intl" ? "international " : ""}${c} · Grassroots WBB`;
+  $("#controls").innerHTML = `
+    <span class="cgrp"><button class="tbtn${grp === "dom" ? " on" : ""}" id="tdom" aria-pressed="${grp === "dom"}">Domestic</button><button class="tbtn${grp === "intl" ? " on" : ""}" id="tintl" aria-pressed="${grp === "intl"}">International</button></span>
+    <span class="cgrp"><label>${yl} <select id="csel" aria-label="${yl}">${years.map(y => `<option${y === c ? " selected" : ""}>${y}</option>`).join("")}</select></label></span>
+    <span class="cgrp"><input id="q" type="text" placeholder="Search player or college…" autocomplete="off" aria-label="Search player or college" value="${esc(st.q || "")}"></span>`;
+  $("#tdom").onclick = () => setState({ t: "", c: "", s: "", d: "", lim: "" });
+  $("#tintl").onclick = () => setState({ t: "intl", c: "", s: "", d: "", lim: "" });
+  $("#csel").onchange = e => setState({ c: e.target.value, lim: "" });
+  let tm;
+  $("#q").oninput = e => {
+    clearTimeout(tm);
+    tm = setTimeout(() => { setState({ q: e.target.value, lim: "" }, true); trackTable(getState(), grp, c); }, 150);
+  };
+  trackTable(st, grp, c);
+}
+function trackTable(st, grp, c) {
+  const { t, rows: all } = trackRows(grp, c);
+  const cols = TCOLS_BASE.filter(col => !col.intlOnly || grp === "intl");
+  const q = (st.q || "").trim().toLowerCase();
+  const key = st.s || "rank_model", dir = st.d || (["rank_model", "rank_actual", "espn_rank", "name", "college", "team", "pos"].includes(key) ? "a" : "d");
+  const rows = sortRows(all.filter(r => !q || r.name.toLowerCase().includes(q) || (r.college || "").toLowerCase().includes(q)), cols, key, dir);
+  const lim = st.lim === "all" ? rows.length : 50;
+  const tot = S.track[grp].reduce((a, x) => a + x.hits5, 0), nc = S.track[grp].length;
+  const what = grp === "dom" ? `Class of ${c}` : `International players entering college in ${c - 1}–${String(c).slice(2)}`;
+  $("#query").innerHTML = `<span class="prompt">&gt;</span> held_out_${grp} <span class="pipe">|&gt;</span> <span class="fn">filter</span>(${grp === "dom" ? "class" : "entry"} == ${c}) <span class="pipe">|&gt;</span> <span class="fn">arrange</span>(${dir === "d" ? `desc(${key})` : key})<span class="tibble">## A tibble: ${rows.length} × ${cols.length} · the model never saw this ${grp === "dom" ? "class" : "entry year"} while training</span>`;
+  const body = rows.slice(0, lim).map(r => `<tr>${cols.map(col => {
+    const sorted = col.k === key ? " sorted" : "";
+    const h = col.heat ? col.heat(r) : null;
+    const style = h == null ? "" : ` style="--heat:${heatColor(h)}"`;
+    const v = col.fmt ? col.fmt(r) : (col.d != null ? num(r[col.k], col.d) : esc(r[col.k] ?? "—"));
+    return `<td class="${col.cls || ""}${sorted}"${style}>${v}</td>`;
+  }).join("")}</tr>`).join("");
+  const more = rows.length > lim ? `<div class="more"><button class="tbtn" id="showall">Show all ${rows.length} players</button></div>` : "";
+  $("#main").innerHTML = `<div class="note"><b>${what}:</b> ${t ? `${t.hits5} of our top 5 finished in the top 10 by actual college RAPM NET (${t.n} players with college careers)` : "no data"}.
+    Across ${nc} ${grp === "dom" ? "classes" : "entry years"}, ${tot} of ${nc * 5} top-5 picks did.
+    ${grp === "intl" ? `International = players whose grassroots record is national-team (FIBA) play for a country other than the USA, ranked by the international model (${esc(S.track.intl_model)}).` : ""}
+    Each ${grp === "dom" ? "class" : "year"} is ranked by a model that never saw it. Click a player for her profile.</div>
+    <div class="tablewrap"><table id="track">${headHTML(cols, key, dir)}<tbody>${body || `<tr><td colspan="${cols.length}">No players match.</td></tr>`}</tbody></table></div>${more}`;
+  wireSort("#track", cols, key, dir);
+  const sa = $("#showall");
+  if (sa) sa.onclick = () => setState({ lim: "all" });
 }
 
 /* ── Player card ──────────────────────────────────────────────────────── */
 async function renderPlayer(st) {
   $("#controls").innerHTML = "";
   $("#query").innerHTML = "";
-  const r = S.byKey.get(st.p);
+  const r = S.byKey.get(st.p) || retroRow(st.p);
   if (!r) { $("#main").innerHTML = `<div class="errbox">No player found for that link. <a href="#view=board">Back to the prospects</a></div>`; return; }
   document.title = `${r.name} · Grassroots WBB`;
-  if (!S.chunks[r.class_year]) {
+  const file = r.retro ? S.track.where[r.key] : `p_${r.class_year}`;
+  if (file && !S.chunks[file]) {
     $("#main").innerHTML = '<div class="loading">Loading player…</div>';
-    try { S.chunks[r.class_year] = await getJSON(`p_${r.class_year}.json`); }
+    try { S.chunks[file] = await getJSON(`${file}.json`); }
     catch (e) { $("#main").innerHTML = `<div class="errbox">Couldn't load this profile (${esc(e.message)}).</div>`; return; }
     if (getState().p !== st.p) return;       // navigated away while loading
   }
-  const P = S.chunks[r.class_year][r.key] || null;
+  const P = file ? (S.chunks[file][r.key] || null) : null;
   $("#main").innerHTML = cardHTML(r, P);
 }
 
+function retroRow(key) {
+  for (const grp of ["dom", "intl"]) {
+    for (const t of S.track[grp]) {
+      const i = t.rows.findIndex(x => x[0] === key);
+      if (i < 0) continue;
+      const o = Object.fromEntries(S.track.cols.map((c, j) => [c, t.rows[i][j]]));
+      return {
+        ...o, class_year: t.class_year, rk: o.rank_model, school_raw: o.college, school_src: "played",
+        vs_espn: o.espn_rank == null ? null : o.espn_rank - o.rank_model,
+        intl: grp === "intl" ? 1 : 0, circuits: null,
+        retro: { grp, n: t.n, pred: o.pred, actual: o.actual, rank_actual: o.rank_actual },
+      };
+    }
+  }
+  return null;
+}
 function classRank(r, k) {
   const v = r[k];
   if (v == null) return null;
@@ -372,23 +447,27 @@ function cardHTML(r, P) {
   const tc = r.tid ? teamColor(r.tid) : "#8a3f12";
   const m = r.tid ? S.meta.schools[r.tid] : null;
   const tc2 = m && /^[0-9a-f]{6}$/i.test(m[2]) ? "#" + m[2] : tc;
-  const where = r.school_src === "enrolled" ? "Plays at" : r.school_raw ? "Committed to" : null;
+  const where = r.retro ? "Played at" : r.school_src === "enrolled" ? "Plays at" : r.school_raw ? "Committed to" : null;
   const schoolBit = where ? `${where} ${schHTML(r.tid, r.school_raw)}${statusTags(r.school_src)}` : "Uncommitted";
-  const n = S.rows.filter(x => x.class_year === r.class_year).length;
+  const n = r.retro ? r.retro.n : S.rows.filter(x => x.class_year === r.class_year).length;
+  const yrLabel = r.retro && r.retro.grp === "intl" ? `Entered college ${r.class_year - 1}–${String(r.class_year).slice(2)}` : `Class of ${r.class_year}`;
+  const backHref = r.retro ? `#view=track&t=${r.retro.grp === "intl" ? "intl" : ""}&c=${r.class_year}` : `#view=board&c=${r.class_year}`;
+  const backText = r.retro ? `← Track record, ${r.retro.grp === "intl" ? "international " : ""}${r.class_year}` : `← Class of ${r.class_year} prospects`;
   const logo = r.tid ? `<img class="logo" src="${logoURL(r.tid)}" alt="${esc(schoolName(r.tid) || "")}" onerror="this.remove()">` : "";
   const banner = `<div class="banner">${logo}<div class="who">
-    <a class="back" href="#view=board&c=${r.class_year}">← Class of ${r.class_year} prospects</a>
+    <a class="back" href="${backHref}">${esc(backText)}</a>
     <h1><span class="rk">#${r.rk}</span>${esc(r.name)}${r.intl ? '<span class="tag t-intl">INTL</span>' : ""}</h1>
-    <div class="meta"><span>Class of ${r.class_year}</span>${r.pos ? `<span>${esc(r.pos)}</span>` : ""}${r.ht ? `<span>${esc(r.ht)}</span>` : ""}
+    <div class="meta"><span>${yrLabel}</span>${r.team && r.team !== "USA" ? `<span>${esc(r.team)}</span>` : ""}${r.pos ? `<span>${esc(r.pos)}</span>` : ""}${r.ht ? `<span>${esc(r.ht)}</span>` : ""}
       <span>${esc(r.circuits || "")}</span>${P ? `<span>${P.avg.gp} games</span>` : ""}<span>${schoolBit}</span></div></div>
     <div class="chips">
-      <span class="chip">Our rank <b>#${r.rk}</b> of ${n.toLocaleString()}</span>
+      <span class="chip">${r.retro ? "Our pre-college rank" : "Our rank"} <b>#${r.rk}</b> of ${n.toLocaleString()}</span>
+      ${r.retro ? `<span class="chip">Actual college rank <b>${r.retro.rank_actual == null ? "—" : "#" + Math.round(r.retro.rank_actual)}</b></span>` : ""}
       <span class="chip">ESPN <b>${r.espn_rank == null ? "unranked" : "#" + r.espn_rank}</b>${r.espn_grade ? ` · grade ${r.espn_grade}` : ""}</span>
       ${r.vs_espn == null ? "" : `<span class="chip">vs ESPN <b class="${r.vs_espn > 0 ? "up" : r.vs_espn < 0 ? "dn" : ""}">${sgn(r.vs_espn, 0)}</b></span>`}
     </div></div>`;
 
   const tiles = P ? tilesHTML(P) : "";
-  const proj = projHTML(r);
+  const proj = r.retro ? retroHTML(r) : projHTML(r);
   const radar = radarHTML(r, tc, tc2);
   const stand = P ? standHTML(P) : "";
   const resume = P ? resumeHTML(P) : "";
@@ -435,6 +514,18 @@ function projHTML(r) {
         <div class="sm">${rk ? `#${rk} in class` : "—"}${p == null ? "" : ` · ${ord(p)}`}</div></div>`;
     }).join("")}</div>
     <div class="projline">Skill grade <b>${r.grade_overall ?? "—"}</b>/100 overall${r.espn_rank != null ? ` · ESPN has her <b>#${r.espn_rank}</b>, we have her <b>#${r.rk}</b>` : ` · not on ESPN's list; we have her <b>#${r.rk}</b>`}.</div></section>`;
+}
+function retroHTML(r) {
+  const R = r.retro, diff = R.actual != null && R.pred != null ? R.actual - R.pred : null;
+  const p = R.rank_actual == null ? null : Math.round(100 * (1 - (R.rank_actual - 1) / R.n));
+  return `<section class="pnl"><h3>Projected vs what happened<span class="sub">RAPM NET per 100 possessions</span></h3>
+    <div class="proj">
+      <div><div class="lbl">Projected</div><div class="big">${sgn(R.pred, 2)}</div><div class="sm">#${r.rk} of ${R.n} before college</div></div>
+      <div${heatVar(p)}><div class="lbl">Actual</div><div class="big">${sgn(R.actual, 2)}</div><div class="sm">#${R.rank_actual == null ? "—" : Math.round(R.rank_actual)} in college</div></div>
+      <div><div class="lbl">Difference</div><div class="big ${diff > 0 ? "up" : diff < 0 ? "dn" : ""}">${sgn(diff, 2)}</div><div class="sm">${diff == null ? "" : diff > 0 ? "beat the projection" : "fell short"}</div></div>
+      <div><div class="lbl">ESPN</div><div class="big">${r.espn_rank == null ? "—" : "#" + r.espn_rank}</div><div class="sm">${r.espn_grade ? "grade " + r.espn_grade : "unranked"}</div></div>
+    </div>
+    <div class="projline">${r.retro.grp === "intl" ? "Ranked by the international model" : "Ranked by the Consensus RAPM model"}, which never saw this ${r.retro.grp === "intl" ? "entry year" : "class"} while training.</div></section>`;
 }
 function standHTML(P) {
   const lab = Object.fromEntries(S.meta.metrics.map(m => [m[0], m[1]]));
