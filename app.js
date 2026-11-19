@@ -123,7 +123,7 @@ const defaultClass = () => 2027;
 
 /* ── Prospects board ──────────────────────────────────────────────────── */
 const BCOLS = [
-  { k: "rk", l: "Rk", g: "", cls: "rk" },
+  { k: "rk", l: "Rk", g: "", cls: "rk", title: "Our rank in the class, by projected career WBPM-C. Stays fixed when you sort by another column." },
   { k: "name", l: "Player", g: "Overview", cls: "name", sortv: r => r.name,
     fmt: r => `<a href="#view=player&p=${encodeURIComponent(r.key)}">${esc(r.name)}</a>${r.intl ? '<span class="tag t-intl" title="International">INTL</span>' : ""}` },
   { k: "pos", l: "Pos", g: "Overview", sortv: r => r.pos || "~" },
