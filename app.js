@@ -123,7 +123,7 @@ const defaultClass = () => 2027;
 
 /* ── Prospects board ──────────────────────────────────────────────────── */
 const BCOLS = [
-  { k: "rk", l: "Rk", g: "", cls: "rk", title: "Our rank in the class, by projected career WBPM-C. Stays fixed when you sort by another column." },
+  { k: "rk", l: "Rk", g: "", cls: "rk", title: "Our rank in the class, by projected RAPM NET. Stays fixed when you sort by another column." },
   { k: "name", l: "Player", g: "Overview", cls: "name", sortv: r => r.name,
     fmt: r => `<a href="#view=player&p=${encodeURIComponent(r.key)}">${esc(r.name)}</a>${r.intl ? '<span class="tag t-intl" title="International">INTL</span>' : ""}` },
   { k: "pos", l: "Pos", g: "Overview", sortv: r => r.pos || "~" },
@@ -134,10 +134,10 @@ const BCOLS = [
   { k: "espn_grade", l: "Grade", g: "ESPN", d: 0 },
   { k: "vs_espn", l: "vs ESPN", g: "ESPN", title: "Positive = we rank her higher than ESPN does",
     fmt: r => r.vs_espn == null ? "—" : `<span class="${r.vs_espn > 0 ? "up" : r.vs_espn < 0 ? "dn" : ""}">${sgn(r.vs_espn, 0)}</span>` },
-  { k: "wbpm", l: "WBPM-C", g: "Projection", d: 2, pct: "wbpm_p", title: "Projected career box plus/minus (WBPM-C)" },
-  { k: "rapm", l: "RAPM", g: "Projection", d: 2, pct: "rapm_p", title: "Projected RAPM NET" },
-  { k: "orapm", l: "ORAPM", g: "Projection", d: 2, pct: "orapm_p" },
+  { k: "rapm", l: "RAPM", g: "Projection", d: 2, pct: "rapm_p", title: "Projected RAPM NET (on/off impact per 100 possessions); the ranking metric" },
+  { k: "orapm", l: "ORAPM", g: "Projection", d: 2, pct: "orapm_p", title: "Projected offensive RAPM" },
   { k: "drapm", l: "DRAPM", g: "Projection", d: 2, pct: "drapm_p", title: "Projected defensive RAPM (higher = better)" },
+  { k: "wbpm", l: "WBPM-C", g: "Projection", d: 2, pct: "wbpm_p", title: "Projected career box plus/minus (WBPM-C)" },
   { k: "grade_shoot3", l: "3PT", g: "Skill grades", grade: true },
   { k: "grade_shoot2", l: "2PT", g: "Skill grades", grade: true },
   { k: "grade_passing", l: "Pass", g: "Skill grades", grade: true },
@@ -276,10 +276,10 @@ function classesTable(st) {
   const all = S.schools.filter(s => s.class_year === c);
   const rows = all.filter(s => !q || (s.school || "").toLowerCase().includes(q));
   const open = st.open ? +st.open : null;
-  $("#query").innerHTML = `<span class="prompt">&gt;</span> commits <span class="pipe">|&gt;</span> <span class="fn">filter</span>(class == ${c}) <span class="pipe">|&gt;</span> <span class="fn">group_by</span>(school) <span class="pipe">|&gt;</span> <span class="fn">summarise</span>(points = <span class="fn">sum</span>(proj * 0.8^(rank - 1)))<span class="tibble">## A tibble: ${all.length} × 7</span>`;
+  $("#query").innerHTML = `<span class="prompt">&gt;</span> commits <span class="pipe">|&gt;</span> <span class="fn">filter</span>(class == ${c}) <span class="pipe">|&gt;</span> <span class="fn">group_by</span>(school) <span class="pipe">|&gt;</span> <span class="fn">summarise</span>(points = <span class="fn">sum</span>(rapm * 0.8^(rank - 1)))<span class="tibble">## A tibble: ${all.length} × 7</span>`;
   const head = `<thead><tr class="grprow"><th colspan="3"></th><th colspan="3">Class strength</th><th colspan="2">Headliner</th></tr>
     <tr><th class="nosort"></th><th class="nosort">Rk</th><th class="nosort">School</th><th class="nosort" title="Commits we track">Commits</th>
-    <th class="nosort" title="Each commit's projection, best first, weighted 1, 0.8, 0.64…">Points</th><th class="nosort">Avg proj</th>
+    <th class="nosort" title="Each commit's projection, best first, weighted 1, 0.8, 0.64…">Points</th><th class="nosort" title="Average projected RAPM NET">Avg RAPM</th>
     <th class="nosort">Top commit</th><th class="nosort">ESPN Rk</th></tr></thead>`;
   const pts = all.map(s => s.points).sort((a, b) => a - b);
   const pctOf = v => pts.length > 1 ? Math.round(100 * pts.filter(x => x <= v).length / pts.length) : 50;
@@ -293,7 +293,7 @@ function classesTable(st) {
       <td class="left">${top ? esc(top[1]) : ""}</td><td>${s.top_rank == null ? "—" : s.top_rank}</td></tr>`;
     return isOpen ? row + detailRow(s) : row;
   }).join("");
-  $("#main").innerHTML = `<div class="note">Recruiting classes ranked by our projections, 247Sports-style: each commit's projected career WBPM-C, best first, weighted 1, 0.8, 0.64… Click a school to see its commits; click a player for her profile.${c === 2026 ? " For 2026, the school is where she's playing now." : ""}</div>
+  $("#main").innerHTML = `<div class="note">Recruiting classes ranked by our projections, 247Sports-style: each commit's projected RAPM NET, best first, weighted 1, 0.8, 0.64… Click a school to see its commits; click a player for her profile.${c === 2026 ? " For 2026, the school is where she's playing now." : ""}</div>
     <div class="tablewrap"><table id="classes">${head}<tbody>${body || `<tr><td colspan="8">No schools match.</td></tr>`}</tbody></table></div>`;
   document.querySelectorAll("#classes tr.srow").forEach(tr => {
     const toggle = () => {
@@ -309,16 +309,16 @@ function detailRow(s) {
   const tc = teamColor(s.tid);
   const rows = s.commits.map(([key, name, proj, er, pos, imp, src]) => {
     const b = key ? S.byKey.get(key) : null;
-    const p = b ? b.wbpm_p : null;
+    const p = b ? b.rapm_p : null;
     const who = key ? `<a href="#view=player&p=${encodeURIComponent(key)}">${esc(name)}</a>` : esc(name);
     return `<tr><td class="name">${who}${imp ? '<span class="tag t-imp" title="No grassroots stats; estimated from ESPN grade">*</span>' : ""}${statusTags(src)}</td>
       <td>${esc(pos || (b && b.pos) || "—")}</td><td>${b && b.ht ? esc(b.ht) : "—"}</td><td>${er == null ? "—" : er}</td>
-      <td style="--heat:${heatColor(p)}">${sgn(proj, 2)}</td><td>${b ? sgn(b.rapm, 2) : "—"}</td>
+      <td style="--heat:${heatColor(p)}">${sgn(proj, 2)}</td><td>${b ? sgn(b.wbpm, 2) : "—"}</td>
       <td style="--heat:${heatColor(b ? b.grade_overall : null)}">${b && b.grade_overall != null ? b.grade_overall : "—"}</td></tr>`;
   }).join("");
   return `<tr class="detail"><td colspan="8"><div class="bar" style="--tc:${tc}">
     <table><thead><tr><th class="nosort">Player</th><th class="nosort">Pos</th><th class="nosort">Ht</th><th class="nosort">ESPN Rk</th>
-    <th class="nosort">WBPM-C</th><th class="nosort">RAPM</th><th class="nosort">Skill Ovr</th></tr></thead><tbody>${rows}</tbody></table></div></td></tr>`;
+    <th class="nosort">RAPM</th><th class="nosort">WBPM-C</th><th class="nosort">Skill Ovr</th></tr></thead><tbody>${rows}</tbody></table></div></td></tr>`;
 }
 
 /* ── Track record ─────────────────────────────────────────────────────── */
@@ -337,11 +337,11 @@ function renderTrack(st) {
       <td>${er == null ? "—" : er}</td><td style="--heat:${heatColor(ap)}"><b>${ar == null ? "—" : Math.round(ar)}</b></td>
       <td>${sgn(pred, 2)}</td><td>${sgn(act, 2)}</td></tr>`;
   }).join("");
-  $("#main").innerHTML = `<div class="note"><b>Class of ${c}:</b> ${t.hits5} of our top 5 finished in the class's top 10 by actual college impact (${t.n} players with college careers).
+  $("#main").innerHTML = `<div class="note"><b>Class of ${c}:</b> ${t.hits5} of our top 5 finished in the class's top 10 by actual college RAPM NET (${t.n} players with college careers).
     Across ${S.track.length} classes, ${totHits} of ${S.track.length * 5} top-5 picks did. Each class is ranked by a model that never saw it.</div>
     <div class="tablewrap"><table id="track"><thead><tr class="grprow"><th colspan="3">Our ranking (before college)</th><th>ESPN</th><th colspan="3">What happened</th></tr>
     <tr><th class="nosort">Our Rk</th><th class="nosort">Player</th><th class="nosort">College</th><th class="nosort">Rk</th>
-    <th class="nosort" title="Rank in the class by actual career WBPM-C">Actual Rk</th><th class="nosort">Proj</th><th class="nosort">Actual</th></tr></thead>
+    <th class="nosort" title="Rank in the class by actual career RAPM NET">Actual Rk</th><th class="nosort" title="Projected RAPM NET">Proj</th><th class="nosort" title="Actual career RAPM NET">Actual</th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
 }
 
@@ -427,7 +427,7 @@ function tilesHTML(P) {
   }).join("")}</div>`;
 }
 function projHTML(r) {
-  const items = [["wbpm", "WBPM-C", "Box impact"], ["rapm", "RAPM", "On/off impact"], ["orapm", "ORAPM", "Offense"], ["drapm", "DRAPM", "Defense"]];
+  const items = [["rapm", "RAPM", "On/off impact (ranking metric)"], ["orapm", "ORAPM", "Offense"], ["drapm", "DRAPM", "Defense"], ["wbpm", "WBPM-C", "Box impact"]];
   return `<section class="pnl"><h3>College projection<span class="sub">career impact per 100 possessions</span></h3>
     <div class="proj">${items.map(([k, l, s]) => {
       const p = r[k + "_p"], rk = classRank(r, k);
