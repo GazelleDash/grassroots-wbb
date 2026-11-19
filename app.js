@@ -19,10 +19,12 @@ function heatColor(p) {           // identical to the WNBA RAPM site
   const dist = Math.abs(p - 50) / 50;
   return `hsl(${Math.round(p * 1.2)}, ${Math.round(45 + 30 * dist)}%, ${Math.round(93 - 6 * dist)}%)`;
 }
-function darkHeat(p) {            // same hue ramp, saturated for the dark card
-  if (p == null) return "#59606b";
-  return `hsl(${Math.round(p * 1.2)}, 72%, ${p >= 40 && p <= 60 ? 62 : 56}%)`;
+function barHeat(p) {             // same hue ramp, a step stronger so thin bars read
+  if (p == null) return "#ddd";
+  const dist = Math.abs(p - 50) / 50;
+  return `hsl(${Math.round(p * 1.2)}, ${Math.round(50 + 25 * dist)}%, ${Math.round(80 - 12 * dist)}%)`;
 }
+const heatVar = p => p == null ? "" : ` style="--heat:${heatColor(p)}"`;
 const num = (v, d = 1) => (v == null || isNaN(v)) ? "—" : Number(v).toFixed(d);
 const sgn = (v, d = 1) => (v == null || isNaN(v)) ? "—" : (v > 0 ? "+" : "") + Number(v).toFixed(d);
 function ord(n) {
@@ -371,19 +373,18 @@ function cardHTML(r, P) {
   const m = r.tid ? S.meta.schools[r.tid] : null;
   const tc2 = m && /^[0-9a-f]{6}$/i.test(m[2]) ? "#" + m[2] : tc;
   const where = r.school_src === "enrolled" ? "Plays at" : r.school_raw ? "Committed to" : null;
-  const schoolBit = where ? `${where} ${schHTML(r.tid, r.school_raw)}${r.school_src === "x" ? ' <span class="chip">reported on X</span>' : ""}` : "Uncommitted";
+  const schoolBit = where ? `${where} ${schHTML(r.tid, r.school_raw)}${statusTags(r.school_src)}` : "Uncommitted";
   const n = S.rows.filter(x => x.class_year === r.class_year).length;
-  const wm = r.tid ? `<img class="wm" src="${logoURL(r.tid)}" alt="" onerror="this.remove()">` : "";
-  const banner = `<div class="banner">${wm}
+  const logo = r.tid ? `<img class="logo" src="${logoURL(r.tid)}" alt="${esc(schoolName(r.tid) || "")}" onerror="this.remove()">` : "";
+  const banner = `<div class="banner">${logo}<div class="who">
     <a class="back" href="#view=board&c=${r.class_year}">← Class of ${r.class_year} prospects</a>
-    <h1 class="disp"><span class="rk">#${r.rk}</span>${esc(r.name)}</h1>
+    <h1><span class="rk">#${r.rk}</span>${esc(r.name)}${r.intl ? '<span class="tag t-intl">INTL</span>' : ""}</h1>
     <div class="meta"><span>Class of ${r.class_year}</span>${r.pos ? `<span>${esc(r.pos)}</span>` : ""}${r.ht ? `<span>${esc(r.ht)}</span>` : ""}
-      <span>${esc(r.circuits || "")}</span>${P ? `<span>${P.avg.gp} games</span>` : ""}<span>${schoolBit}</span></div>
+      <span>${esc(r.circuits || "")}</span>${P ? `<span>${P.avg.gp} games</span>` : ""}<span>${schoolBit}</span></div></div>
     <div class="chips">
       <span class="chip">Our rank <b>#${r.rk}</b> of ${n.toLocaleString()}</span>
       <span class="chip">ESPN <b>${r.espn_rank == null ? "unranked" : "#" + r.espn_rank}</b>${r.espn_grade ? ` · grade ${r.espn_grade}` : ""}</span>
-      ${r.vs_espn == null ? "" : `<span class="chip">${r.vs_espn > 0 ? `We're <b>${r.vs_espn}</b> spots higher than ESPN` : r.vs_espn < 0 ? `We're <b>${-r.vs_espn}</b> spots lower than ESPN` : "Same rank as ESPN"}</span>`}
-      ${r.intl ? '<span class="chip">International</span>' : ""}
+      ${r.vs_espn == null ? "" : `<span class="chip">vs ESPN <b class="${r.vs_espn > 0 ? "up" : r.vs_espn < 0 ? "dn" : ""}">${sgn(r.vs_espn, 0)}</b></span>`}
     </div></div>`;
 
   const tiles = P ? tilesHTML(P) : "";
@@ -404,8 +405,8 @@ function resumeHTML(P) {
   const teams = [...new Set(ev.map(e => e[4]).filter(Boolean))];
   const usa = teams.includes("USA");
   const fiba = circuits.includes("FIBA-W");
-  const row = (k, v) => `<div><span class="pp muted" style="width:86px;font-weight:normal">${k}</span><span>${v}</span></div>`;
-  return `<section class="pnl stand"><h3 class="disp">Resume<span class="sub">what's on file</span></h3>
+  const row = (k, v) => `<div><span class="rl">${k}</span><span>${v}</span></div>`;
+  return `<section class="pnl stand"><h3>Resume<span class="sub">what's on file</span></h3>
     ${row("Seasons", seasons.length ? `${Math.min(...seasons)}–${Math.max(...seasons)}` : "—")}
     ${row("Events", `${ev.length} (${P.avg.gp} games)`)}
     ${row("Circuits", esc(circuits.join(", ")) || "—")}
@@ -422,16 +423,16 @@ function tilesHTML(P) {
     let sub = p == null ? "—" : `${ord(p)} pct`;
     if (k === "tp" && P.shoot[1]) sub = `${Math.round(P.shoot[0])}-${Math.round(P.shoot[1])} · ${p == null ? "—" : ord(p)}`;
     if (k === "ft" && P.shoot[3]) sub = `${Math.round(P.shoot[2])}-${Math.round(P.shoot[3])} · ${p == null ? "—" : ord(p)}`;
-    return `<div class="tile"><div class="k">${l}</div><div class="v disp">${num(P.avg[k], d)}</div><div class="p" style="color:${darkHeat(p)}">${sub}</div></div>`;
+    return `<div class="tile"${heatVar(p)}><div class="k">${l}</div><div class="v">${num(P.avg[k], d)}</div><div class="p">${sub}</div></div>`;
   }).join("")}</div>`;
 }
 function projHTML(r) {
   const items = [["wbpm", "WBPM-C", "Box impact"], ["rapm", "RAPM", "On/off impact"], ["orapm", "ORAPM", "Offense"], ["drapm", "DRAPM", "Defense"]];
-  return `<section class="pnl"><h3 class="disp">College projection<span class="sub">career impact per 100 possessions</span></h3>
+  return `<section class="pnl"><h3>College projection<span class="sub">career impact per 100 possessions</span></h3>
     <div class="proj">${items.map(([k, l, s]) => {
       const p = r[k + "_p"], rk = classRank(r, k);
-      return `<div><div class="lbl">${l}</div><div class="big disp" style="color:${darkHeat(p)}">${sgn(r[k], 2)}</div>
-        <div class="sm">${rk ? `#${rk} in class` : "—"}</div><div class="sm muted">${s}</div></div>`;
+      return `<div${heatVar(p)}><div class="lbl" title="${s}">${l}</div><div class="big">${sgn(r[k], 2)}</div>
+        <div class="sm">${rk ? `#${rk} in class` : "—"}${p == null ? "" : ` · ${ord(p)}`}</div></div>`;
     }).join("")}</div>
     <div class="projline">Skill grade <b>${r.grade_overall ?? "—"}</b>/100 overall${r.espn_rank != null ? ` · ESPN has her <b>#${r.espn_rank}</b>, we have her <b>#${r.rk}</b>` : ` · not on ESPN's list; we have her <b>#${r.rk}</b>`}.</div></section>`;
 }
@@ -439,18 +440,18 @@ function standHTML(P) {
   const lab = Object.fromEntries(S.meta.metrics.map(m => [m[0], m[1]]));
   const top = Object.entries(P.pct).filter(([, p]) => p != null && p >= 70).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const fmt = k => ["ts", "tp", "ft", "usg"].includes(k) ? num(P.avg[k], 1) : k === "ato" ? num(P.avg[k], 2) : k === "bpm" ? sgn(P.avg[k], 1) : num(P.avg[k], 1);
-  return `<section class="pnl stand"><h3 class="disp">Stands out<span class="sub">vs grassroots peers</span></h3>${top.length
-    ? top.map(([k, p]) => `<div><span class="pp" style="color:${darkHeat(p)}">${ord(p)}</span><span>${esc(lab[k])} (${fmt(k)})</span></div>`).join("")
+  return `<section class="pnl stand"><h3>Stands out<span class="sub">vs grassroots peers</span></h3>${top.length
+    ? top.map(([k, p]) => `<div><span class="pp"${heatVar(p)}>${ord(p)}</span><span>${esc(lab[k])} (${fmt(k)})</span></div>`).join("")
     : '<div class="muted">No stat at the 70th percentile or above yet.</div>'}</section>`;
 }
 function barsHTML(P) {
   const groups = {};
   for (const [k, l, g] of S.meta.metrics) (groups[g] = groups[g] || []).push([k, l]);
   const fmt = k => ["ts", "tp", "ft", "usg"].includes(k) ? num(P.avg[k], 1) : k === "ato" ? num(P.avg[k], 2) : k === "bpm" ? sgn(P.avg[k], 1) : num(P.avg[k], 1);
-  return `<section class="pnl full"><h3 class="disp">Grassroots percentiles<span class="sub">per game, career</span></h3><div class="bars">${Object.entries(groups).map(([g, ms]) =>
+  return `<section class="pnl full"><h3>Grassroots percentiles<span class="sub">per game, career</span></h3><div class="bars">${Object.entries(groups).map(([g, ms]) =>
     `<div><h4>${esc(g)}</h4>${ms.map(([k, l]) => {
       const p = P.pct[k];
-      const fill = p == null ? "" : `<div class="bfill" style="width:${p}%;background:${darkHeat(p)};opacity:.45"></div><div class="bdot" style="left:${Math.max(6, Math.min(94, p))}%;background:${darkHeat(p)}">${p}</div>`;
+      const fill = p == null ? "" : `<div class="bfill" style="width:${p}%;background:${barHeat(p)}"></div><div class="bdot" style="left:${Math.max(6, Math.min(94, p))}%;background:${heatColor(p)}">${p}</div>`;
       return `<div class="brow"><span>${esc(l)}</span><div class="btrack">${fill}</div><span class="bv">${fmt(k)}</span></div>`;
     }).join("")}</div>`).join("")}</div></section>`;
 }
@@ -462,24 +463,23 @@ function radarHTML(r, tc, tc2) {
     const a = -Math.PI / 2 + i * 2 * Math.PI / ax.length;
     return [C + Math.cos(a) * R * v / 100, C + Math.sin(a) * R * v / 100];
   };
-  const rings = [25, 50, 75, 100].map(v => `<polygon points="${ax.map((_, i) => pt(i, v).join(",")).join(" ")}" fill="none" stroke="#39414c" stroke-width="1"/>`).join("");
-  const spokes = ax.map((_, i) => `<line x1="${C}" y1="${C}" x2="${pt(i, 100)[0]}" y2="${pt(i, 100)[1]}" stroke="#39414c"/>`).join("");
+  const rings = [25, 50, 75, 100].map(v => `<polygon points="${ax.map((_, i) => pt(i, v).join(",")).join(" ")}" fill="none" stroke="${v === 50 ? "#999" : "#ddd"}" stroke-width="1"/>`).join("");
+  const spokes = ax.map((_, i) => `<line x1="${C}" y1="${C}" x2="${pt(i, 100)[0]}" y2="${pt(i, 100)[1]}" stroke="#ddd"/>`).join("");
   const poly = ax.map(([k], i) => pt(i, r[k] ?? 0).join(",")).join(" ");
-  const fillc = lum((tc2 || "").slice(1)) > 0.05 && tc2 !== tc ? tc2 : "#ffb27a";
   const labels = ax.map(([, l], i) => {
     const [x, y] = pt(i, 122);
-    return `<text x="${x}" y="${y}" fill="#c9cdd3" font-size="10" text-anchor="middle" dominant-baseline="middle">${l}</text>`;
+    return `<text x="${x}" y="${y}" fill="#000" font-size="10" font-family="Verdana, sans-serif" text-anchor="middle" dominant-baseline="middle">${l}</text>`;
   }).join("");
-  return `<section class="pnl"><h3 class="disp">Skill grades<span class="sub">0–100, outward = better</span></h3>
+  return `<section class="pnl"><h3>Skill grades<span class="sub">0–100 percentile · 50th ring in grey · outward = better</span></h3>
     <div class="radarwrap"><svg width="${W}" height="${W}" viewBox="-20 -10 ${W + 40} ${W + 20}" role="img" aria-label="Skill grade radar">
-      ${rings}${spokes}<polygon points="${poly}" fill="${fillc}" fill-opacity=".35" stroke="${fillc}" stroke-width="2"/>${labels}</svg>
-      <div class="glist">${ax.map(([k, l]) => `<div><b style="color:${darkHeat(r[k])}">${r[k] ?? "—"}</b>${l}</div>`).join("")}
-        <div><b style="color:${darkHeat(r.grade_overall)}">${r.grade_overall ?? "—"}</b>Overall</div></div></div></section>`;
+      ${rings}${spokes}<polygon points="${poly}" fill="${tc}" fill-opacity=".22" stroke="${tc}" stroke-width="2"/>${labels}</svg>
+      <div class="glist">${ax.map(([k, l]) => `<div><b${heatVar(r[k])}>${r[k] ?? "—"}</b>${l}</div>`).join("")}
+        <div><b${heatVar(r.grade_overall)}>${r.grade_overall ?? "—"}</b>Overall</div></div></div></section>`;
 }
 function eventsHTML(P) {
   const ev = P.events.slice().reverse();
   const pct = v => v == null ? "—" : num(v <= 1 ? v * 100 : v, 1);
-  return `<section class="pnl full"><h3 class="disp">Event log<span class="sub">per game, newest first</span></h3><div class="tablewrap"><table class="evt">
+  return `<section class="pnl full"><h3>Event log<span class="sub">per game, newest first</span></h3><div class="tablewrap"><table class="evt">
     <thead><tr><th class="l">Season</th><th class="l">Event</th><th class="l">Circuit</th><th class="l">Team</th><th>GP</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TOV</th><th>FG%</th><th>3P%</th><th>FT%</th></tr></thead>
     <tbody>${ev.map(e => {
       const [season, event, circuit, age, team, g, mn, pts, reb, ast, stl, blk, tov, fg, tp, ft] = e;
